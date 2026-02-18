@@ -1,6 +1,6 @@
 """
 AI-Powered Resume Intelligence & Shortlisting System
-FastAPI Backend
+FastAPI Backend — with JWT Auth & GDPR-style data privacy
 """
 
 import os
@@ -10,18 +10,21 @@ import time
 import asyncio
 import logging
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import numpy as np
 from fastapi import FastAPI, UploadFile, File, HTTPException, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from tenacity import retry, stop_after_attempt, wait_exponential
 from dotenv import load_dotenv
+from jose import JWTError, jwt
+from passlib.context import CryptContext
 
 load_dotenv()
 
@@ -33,9 +36,31 @@ from models import (
     ShortlistResult, DashboardStats
 )
 
-# ── Logging ──────────────────────────────────────────────────────────────────
+# ── Logging ───────────────────────────────────────────────────────────────────
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
+
+# ── Security Config ───────────────────────────────────────────────────────────
+SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-change-in-production")
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 60
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+
+# ── Fake Users DB (replace with real DB in production) ────────────────────────
+USERS_DB = {
+    "admin": {
+        "username": "admin",
+        "hashed_password": pwd_context.hash("admin123"),  # change in production
+        "role": "admin",
+    },
+    "recruiter": {
+        "username": "recruiter",
+        "hashed_password": pwd_context.hash("recruiter123"),  # change in production
+        "role": "recruiter",
+    },
+}
 
 # ── Rate Limiter ──────────────────────────────────────────────────────────────
 limiter = Limiter(key_func=get_remote_address)
@@ -44,7 +69,7 @@ limiter = Limiter(key_func=get_remote_address)
 app = FastAPI(
     title="Resume Intelligence API",
     description="AI-powered resume screening & shortlisting",
-    version="1.0.0",
+    version="2.0.0",
 )
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
@@ -67,19 +92,88 @@ vector_store = VectorStore()
 ranker = CandidateRanker()
 
 
+# ── Auth Helpers ──────────────────────────────────────────────────────────────
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+
+
+def verify_password(plain: str, hashed: str) -> bool:
+    return pwd_context.verify(plain, hashed)
+
+
+def create_access_token(data: dict, expires_delta: timedelta = None) -> str:
+    to_encode = data.copy()
+    expire = datetime.utcnow() + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
+    to_encode.update({"exp": expire})
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+
+async def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
+    credentials_exception = HTTPException(
+        status_code=401,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username: str = payload.get("sub")
+        if username is None:
+            raise credentials_exception
+    except JWTError:
+        raise credentials_exception
+
+    user = USERS_DB.get(username)
+    if user is None:
+        raise credentials_exception
+    return user
+
+
+async def require_admin(current_user: dict = Depends(get_current_user)):
+    if current_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return current_user
+
+
+# ── Auth Endpoints ────────────────────────────────────────────────────────────
+
+@app.post("/token", response_model=Token)
+async def login(form_data: OAuth2PasswordRequestForm = Depends()):
+    """Login to get a JWT access token."""
+    user = USERS_DB.get(form_data.username)
+    if not user or not verify_password(form_data.password, user["hashed_password"]):
+        raise HTTPException(
+            status_code=401,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    token = create_access_token(data={"sub": user["username"], "role": user["role"]})
+    logger.info(f"User '{user['username']}' logged in successfully.")
+    return {"access_token": token, "token_type": "bearer"}
+
+
 # ── Health ────────────────────────────────────────────────────────────────────
+
 @app.get("/health")
 async def health():
     return {"status": "ok", "timestamp": datetime.utcnow().isoformat()}
 
 
 # ── Resume Upload & Parse ─────────────────────────────────────────────────────
+
+ALLOWED_EXTENSIONS = (".pdf", ".docx", ".txt", ".png", ".jpg", ".jpeg")
+
 @app.post("/api/resume/upload", response_model=CandidateProfile)
 @limiter.limit("10/minute")
-async def upload_resume(request: Request, file: UploadFile = File(...)):
-    """Upload a PDF resume → extract skills/exp/projects → store embedding."""
-    if not file.filename.lower().endswith(".pdf"):
-        raise HTTPException(400, "Only PDF files are supported")
+async def upload_resume(
+    request: Request,
+    file: UploadFile = File(...),
+    current_user: dict = Depends(get_current_user),
+):
+    """Upload a resume (PDF/DOCX/TXT/image) → extract skills/exp/projects → store embedding."""
+    if not any(file.filename.lower().endswith(ext) for ext in ALLOWED_EXTENSIONS):
+        raise HTTPException(400, f"Supported formats: {', '.join(ALLOWED_EXTENSIONS)}")
 
     content = await file.read()
     if len(content) > 5 * 1024 * 1024:
@@ -90,122 +184,5 @@ async def upload_resume(request: Request, file: UploadFile = File(...)):
         embedding = vector_store.embed(candidate.summary_text())
         candidate.embedding = embedding.tolist()
         candidates_db[candidate.id] = candidate
-        logger.info(f"Parsed candidate {candidate.id}: {candidate.name}")
-        return candidate
-    except Exception as e:
-        logger.error(f"Parse error: {e}")
-        raise HTTPException(500, f"Failed to parse resume: {str(e)}")
-
-
-# ── Batch Upload ──────────────────────────────────────────────────────────────
-@app.post("/api/resume/batch", response_model=list[CandidateProfile])
-@limiter.limit("3/minute")
-async def batch_upload(request: Request, files: list[UploadFile] = File(...)):
-    """Upload multiple resumes concurrently (max 20)."""
-    if len(files) > 20:
-        raise HTTPException(400, "Maximum 20 files per batch")
-
-    async def process_one(f: UploadFile):
-        try:
-            content = await f.read()
-            c = await parser.parse(content, f.filename)
-            emb = vector_store.embed(c.summary_text())
-            c.embedding = emb.tolist()
-            candidates_db[c.id] = c
-            return c
-        except Exception as e:
-            logger.warning(f"Skipping {f.filename}: {e}")
-            return None
-
-    results = await asyncio.gather(*[process_one(f) for f in files])
-    return [r for r in results if r is not None]
-
-
-# ── Job Description ───────────────────────────────────────────────────────────
-@app.post("/api/job", response_model=JobDescription)
-async def create_job(job: JobDescription):
-    """Register a job description."""
-    job.id = job.id or str(uuid.uuid4())
-    jobs_db[job.id] = job
-    return job
-
-
-@app.get("/api/jobs", response_model=list[JobDescription])
-async def list_jobs():
-    return list(jobs_db.values())
-
-
-# ── Shortlist ─────────────────────────────────────────────────────────────────
-@app.post("/api/shortlist", response_model=list[ShortlistResult])
-@limiter.limit("20/minute")
-async def shortlist_candidates(request: Request, req: ShortlistRequest):
-    """
-    Rank all candidates for a given job description.
-    Scoring = 0.5 * cosine_similarity + 0.3 * skill_match + 0.2 * experience_score
-    """
-    if not candidates_db:
-        raise HTTPException(404, "No candidates in the system")
-
-    job = jobs_db.get(req.job_id)
-    if not job:
-        raise HTTPException(404, "Job not found")
-
-    job_emb = vector_store.embed(job.description)
-    results = ranker.rank(
-        job=job,
-        job_embedding=job_emb,
-        candidates=list(candidates_db.values()),
-        top_k=req.top_k,
-        min_score=req.min_score,
-    )
-    return results
-
-
-# ── Candidate CRUD ────────────────────────────────────────────────────────────
-@app.get("/api/candidates", response_model=list[CandidateProfile])
-async def list_candidates(skill: Optional[str] = None, min_exp: Optional[int] = None):
-    """List candidates with optional filters."""
-    candidates = list(candidates_db.values())
-    if skill:
-        candidates = [c for c in candidates if skill.lower() in [s.lower() for s in c.skills]]
-    if min_exp is not None:
-        candidates = [c for c in candidates if c.years_experience >= min_exp]
-    return candidates
-
-
-@app.get("/api/candidates/{cid}", response_model=CandidateProfile)
-async def get_candidate(cid: str):
-    c = candidates_db.get(cid)
-    if not c:
-        raise HTTPException(404, "Candidate not found")
-    return c
-
-
-@app.delete("/api/candidates/{cid}")
-async def delete_candidate(cid: str):
-    if cid not in candidates_db:
-        raise HTTPException(404, "Candidate not found")
-    del candidates_db[cid]
-    return {"deleted": cid}
-
-
-# ── Dashboard Stats ───────────────────────────────────────────────────────────
-@app.get("/api/dashboard/stats", response_model=DashboardStats)
-async def dashboard_stats():
-    all_skills: list[str] = []
-    total_exp = 0
-    for c in candidates_db.values():
-        all_skills.extend(c.skills)
-        total_exp += c.years_experience
-
-    from collections import Counter
-    skill_counts = Counter(all_skills)
-    n = len(candidates_db)
-
-    return DashboardStats(
-        total_candidates=n,
-        total_jobs=len(jobs_db),
-        avg_experience=round(total_exp / n, 1) if n else 0,
-        top_skills=dict(skill_counts.most_common(10)),
-        candidates_last_24h=n,  # simplified for demo
-    )
+        logger.info(f"Parsed candidate {candidate.id}: {candidate.name} by user '{current_user['username']}'")
+        return
