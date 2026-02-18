@@ -1,7 +1,9 @@
 """
-Resume Parser — extracts structured data from PDF using:
-1. PyPDF2 for text extraction
-2. Anthropic Claude for intelligent parsing
+Resume Parser — extracts structured data from PDF, DOCX, TXT, and images using:
+1. PyPDF2 for PDF text extraction
+2. python-docx for DOCX extraction
+3. pytesseract for image OCR
+4. Anthropic Claude for intelligent parsing
 """
 
 import io
@@ -20,6 +22,19 @@ try:
     HAS_PYPDF2 = True
 except ImportError:
     HAS_PYPDF2 = False
+
+try:
+    import docx
+    HAS_DOCX = True
+except ImportError:
+    HAS_DOCX = False
+
+try:
+    import pytesseract
+    from PIL import Image
+    HAS_OCR = True
+except ImportError:
+    HAS_OCR = False
 
 from models import CandidateProfile, Project
 
@@ -62,16 +77,69 @@ class ResumeParser:
             self.use_llm = False
             logger.warning("No ANTHROPIC_API_KEY found. Using rule-based parser.")
 
+    # ─────────────────────────────────────────────
+    # TEXT EXTRACTORS
+    # ─────────────────────────────────────────────
+
     def _extract_text_from_pdf(self, content: bytes) -> str:
         """Extract raw text from PDF bytes."""
         if not HAS_PYPDF2:
-            raise ImportError("PyPDF2 not installed")
+            raise ImportError("PyPDF2 not installed. Run: pip install PyPDF2")
         reader = PyPDF2.PdfReader(io.BytesIO(content))
         pages = []
         for page in reader.pages:
             text = page.extract_text() or ""
             pages.append(text)
         return "\n".join(pages)
+
+    def _extract_text_from_docx(self, content: bytes) -> str:
+        """Extract raw text from DOCX bytes."""
+        if not HAS_DOCX:
+            raise ImportError("python-docx not installed. Run: pip install python-docx")
+        doc = docx.Document(io.BytesIO(content))
+        paragraphs = [p.text for p in doc.paragraphs if p.text.strip()]
+        # Also extract text from tables inside the DOCX
+        for table in doc.tables:
+            for row in table.rows:
+                for cell in row.cells:
+                    if cell.text.strip():
+                        paragraphs.append(cell.text.strip())
+        return "\n".join(paragraphs)
+
+    def _extract_text_from_txt(self, content: bytes) -> str:
+        """Extract raw text from TXT bytes."""
+        try:
+            return content.decode("utf-8")
+        except UnicodeDecodeError:
+            return content.decode("latin-1")  # fallback encoding
+
+    def _extract_text_from_image(self, content: bytes) -> str:
+        """Extract text from image using OCR (pytesseract)."""
+        if not HAS_OCR:
+            raise ImportError("pytesseract or Pillow not installed. Run: pip install pytesseract Pillow")
+        image = Image.open(io.BytesIO(content))
+        text = pytesseract.image_to_string(image)
+        return text
+
+    def _extract_text(self, content: bytes, filename: str) -> str:
+        """Route to correct extractor based on file extension."""
+        ext = filename.lower().split(".")[-1]
+
+        if ext == "pdf":
+            return self._extract_text_from_pdf(content)
+        elif ext == "docx":
+            return self._extract_text_from_docx(content)
+        elif ext == "txt":
+            return self._extract_text_from_txt(content)
+        elif ext in ("png", "jpg", "jpeg", "tiff", "bmp", "webp"):
+            return self._extract_text_from_image(content)
+        else:
+            logger.warning(f"Unsupported file format: {ext}. Attempting PDF parse.")
+            return self._extract_text_from_pdf(content)
+
+    # ─────────────────────────────────────────────
+    # PARSERS
+    # ─────────────────────────────────────────────
 
     @retry(
         stop=stop_after_attempt(3),
@@ -82,7 +150,7 @@ class ResumeParser:
         """Call Claude to parse resume text."""
         prompt = PARSE_PROMPT.format(text=text[:8000])  # cap tokens
         message = self.client.messages.create(
-            model="claude-haiku-4-5-20251001",  # fast & cheap for parsing
+            model="claude-haiku-4-5-20251001",
             max_tokens=2048,
             messages=[{"role": "user", "content": prompt}],
         )
@@ -139,15 +207,20 @@ class ResumeParser:
             "work_history": [],
         }
 
+    # ─────────────────────────────────────────────
+    # MAIN ENTRY
+    # ─────────────────────────────────────────────
+
     async def parse(self, content: bytes, filename: str) -> CandidateProfile:
-        """Main entry: PDF bytes → CandidateProfile."""
+        """Main entry: file bytes → CandidateProfile. Supports PDF, DOCX, TXT, images."""
         try:
-            text = self._extract_text_from_pdf(content)
+            text = self._extract_text(content, filename)
         except Exception as e:
-            logger.error(f"PDF extraction failed: {e}")
+            logger.error(f"Text extraction failed for {filename}: {e}")
             text = ""
 
         if not text.strip():
+            logger.warning(f"No text extracted from {filename}, using filename as fallback.")
             text = f"Resume file: {filename}"
 
         # Parse structured data
@@ -180,7 +253,25 @@ class ResumeParser:
             education=data.get("education", []),
             projects=projects,
             work_history=data.get("work_history", []),
-            raw_text=text[:2000],  # store truncated raw
+            raw_text=text[:2000],
             filename=filename,
             uploaded_at=datetime.utcnow().isoformat(),
         )
+```
+
+---
+
+**What changed from your original:**
+
+1. Added `python-docx`, `pytesseract`, and `Pillow` imports with safe try/except blocks
+2. Added `_extract_text_from_docx()` — handles DOCX including tables inside the document
+3. Added `_extract_text_from_txt()` — handles TXT with UTF-8 and latin-1 fallback encoding
+4. Added `_extract_text_from_image()` — OCR support for PNG, JPG, JPEG, TIFF, BMP, WEBP
+5. Added `_extract_text()` — a smart router that picks the right extractor based on file extension
+6. Updated `parse()` — now calls `_extract_text()` instead of directly calling `_extract_text_from_pdf()`
+
+Also update your `requirements.txt` by adding:
+```
+python-docx
+pytesseract
+Pillow
