@@ -1,0 +1,824 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ResumeIQ — AI Screening Platform</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Mono:wght@300;400;500&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;1,9..40,300&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0a0f;
+    --surface: #111118;
+    --surface2: #18181f;
+    --border: #252530;
+    --accent: #6c63ff;
+    --accent2: #ff6584;
+    --accent3: #43e97b;
+    --text: #e8e8f0;
+    --muted: #6b6b80;
+    --success: #43e97b;
+    --warning: #ffd166;
+    --danger: #ef4565;
+    --radius: 12px;
+    --radius-lg: 20px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'DM Sans', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Grid noise background */
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background-image:
+      linear-gradient(rgba(108,99,255,.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(108,99,255,.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none; z-index: 0;
+  }
+
+  #root { position: relative; z-index: 1; }
+
+  /* ── Sidebar ── */
+  .layout { display: flex; min-height: 100vh; }
+  .sidebar {
+    width: 240px; min-width: 240px;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    display: flex; flex-direction: column;
+    padding: 24px 16px;
+    position: sticky; top: 0; height: 100vh;
+    overflow-y: auto;
+  }
+  .logo {
+    font-family: 'Syne', sans-serif;
+    font-size: 20px; font-weight: 800;
+    color: var(--text);
+    margin-bottom: 36px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .logo-icon {
+    width: 36px; height: 36px; border-radius: 10px;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px;
+  }
+  .nav-item {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 12px; border-radius: var(--radius);
+    cursor: pointer; color: var(--muted);
+    font-size: 14px; font-weight: 500;
+    transition: all .15s; margin-bottom: 4px;
+    border: none; background: none; width: 100%; text-align: left;
+  }
+  .nav-item:hover { background: var(--surface2); color: var(--text); }
+  .nav-item.active { background: rgba(108,99,255,.15); color: var(--accent); }
+  .nav-icon { font-size: 18px; width: 24px; text-align: center; }
+  .nav-section-label {
+    font-size: 11px; font-weight: 600; letter-spacing: .1em;
+    color: var(--muted); padding: 16px 12px 8px; text-transform: uppercase;
+  }
+
+  /* ── Main ── */
+  .main { flex: 1; padding: 32px; overflow-y: auto; }
+  .page-header { margin-bottom: 32px; }
+  .page-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 28px; font-weight: 800; color: var(--text);
+    margin-bottom: 6px;
+  }
+  .page-subtitle { font-size: 14px; color: var(--muted); }
+
+  /* ── Cards ── */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 24px;
+    transition: border-color .2s;
+  }
+  .card:hover { border-color: rgba(108,99,255,.3); }
+  .card-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 15px; font-weight: 700;
+    margin-bottom: 16px; color: var(--text);
+  }
+
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; }
+  .grid4 { display: grid; grid-template-columns: repeat(4,1fr); gap: 20px; }
+
+  /* ── Stat Cards ── */
+  .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 20px; }
+  .stat-value { font-family: 'Syne', sans-serif; font-size: 36px; font-weight: 800; color: var(--text); }
+  .stat-label { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .stat-accent { color: var(--accent); }
+  .stat-icon { font-size: 28px; margin-bottom: 8px; }
+
+  /* ── Buttons ── */
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 10px 18px; border-radius: var(--radius);
+    font-size: 14px; font-weight: 600; cursor: pointer;
+    border: none; transition: all .15s; font-family: 'DM Sans', sans-serif;
+  }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover { background: #5a52e8; transform: translateY(-1px); }
+  .btn-secondary { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+  .btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
+  .btn-danger { background: var(--danger); color: #fff; }
+  .btn-danger:hover { background: #d63a58; }
+  .btn-sm { padding: 6px 12px; font-size: 12px; }
+  .btn:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+
+  /* ── Forms ── */
+  .form-group { margin-bottom: 16px; }
+  .form-label { font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 6px; display: block; letter-spacing: .05em; text-transform: uppercase; }
+  .form-input, .form-textarea, .form-select {
+    width: 100%; background: var(--surface2); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 10px 14px;
+    color: var(--text); font-size: 14px; font-family: 'DM Sans', sans-serif;
+    transition: border-color .15s; outline: none;
+  }
+  .form-input:focus, .form-textarea:focus, .form-select:focus { border-color: var(--accent); }
+  .form-textarea { min-height: 100px; resize: vertical; }
+  .form-select { appearance: none; }
+  .tags-input { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .tag {
+    display: inline-flex; align-items: center; gap: 4px;
+    background: rgba(108,99,255,.15); color: var(--accent);
+    border: 1px solid rgba(108,99,255,.3);
+    padding: 3px 8px; border-radius: 6px; font-size: 12px;
+  }
+  .tag-remove { cursor: pointer; color: var(--muted); font-size: 14px; }
+  .tag-remove:hover { color: var(--danger); }
+
+  /* ── Upload Zone ── */
+  .upload-zone {
+    border: 2px dashed var(--border); border-radius: var(--radius-lg);
+    padding: 48px 24px; text-align: center; cursor: pointer;
+    transition: all .2s;
+    background: rgba(108,99,255,.02);
+  }
+  .upload-zone:hover, .upload-zone.drag-over {
+    border-color: var(--accent);
+    background: rgba(108,99,255,.05);
+  }
+  .upload-icon { font-size: 48px; margin-bottom: 12px; }
+  .upload-title { font-family: 'Syne', sans-serif; font-size: 18px; font-weight: 700; margin-bottom: 8px; }
+  .upload-sub { font-size: 13px; color: var(--muted); }
+
+  /* ── Progress ── */
+  .progress-bar { background: var(--border); border-radius: 4px; height: 6px; overflow: hidden; margin-top: 8px; }
+  .progress-fill { height: 100%; border-radius: 4px; background: linear-gradient(90deg, var(--accent), var(--accent2)); transition: width .3s; }
+
+  /* ── Score Badge ── */
+  .score-badge {
+    font-family: 'DM Mono', monospace;
+    font-size: 22px; font-weight: 500;
+    padding: 4px 10px; border-radius: 8px;
+  }
+  .score-high { color: var(--success); background: rgba(67,233,123,.1); }
+  .score-mid { color: var(--warning); background: rgba(255,209,102,.1); }
+  .score-low { color: var(--danger); background: rgba(239,69,101,.1); }
+
+  /* ── Candidate Card ── */
+  .candidate-row {
+    display: flex; align-items: center; gap: 16px;
+    padding: 16px; border-radius: var(--radius);
+    background: var(--surface2); margin-bottom: 10px;
+    border: 1px solid transparent; transition: border-color .15s, transform .1s;
+    cursor: pointer;
+  }
+  .candidate-row:hover { border-color: var(--accent); transform: translateX(3px); }
+  .rank-badge {
+    width: 36px; height: 36px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'DM Mono', monospace; font-size: 13px; font-weight: 500;
+    background: var(--border); color: var(--muted); flex-shrink: 0;
+  }
+  .rank-1 { background: linear-gradient(135deg,#ffd700,#ffa500); color: #000; }
+  .rank-2 { background: linear-gradient(135deg,#c0c0c0,#a0a0a0); color: #000; }
+  .rank-3 { background: linear-gradient(135deg,#cd7f32,#a0522d); color: #fff; }
+  .candidate-info { flex: 1; }
+  .candidate-name { font-family: 'Syne', sans-serif; font-size: 15px; font-weight: 700; }
+  .candidate-meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .skill-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+  .skill-chip {
+    font-size: 10px; padding: 2px 6px; border-radius: 4px;
+    font-family: 'DM Mono', monospace;
+  }
+  .skill-match { background: rgba(67,233,123,.1); color: var(--success); border: 1px solid rgba(67,233,123,.2); }
+  .skill-miss { background: rgba(239,69,101,.1); color: var(--danger); border: 1px solid rgba(239,69,101,.2); }
+
+  /* ── Score Breakdown ── */
+  .breakdown-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .breakdown-label { font-size: 12px; color: var(--muted); width: 130px; flex-shrink: 0; }
+  .breakdown-bar { flex: 1; background: var(--border); border-radius: 4px; height: 8px; overflow: hidden; }
+  .breakdown-fill { height: 100%; border-radius: 4px; transition: width .5s; }
+  .breakdown-val { font-family: 'DM Mono', monospace; font-size: 12px; width: 40px; text-align: right; }
+
+  /* ── Modal ── */
+  .modal-backdrop {
+    position: fixed; inset: 0; background: rgba(0,0,0,.7); z-index: 100;
+    display: flex; align-items: center; justify-content: center; padding: 24px;
+  }
+  .modal {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius-lg); width: 100%; max-width: 700px;
+    max-height: 80vh; overflow-y: auto; padding: 32px;
+  }
+  .modal-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; }
+  .modal-title { font-family: 'Syne', sans-serif; font-size: 20px; font-weight: 800; }
+  .modal-close { background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 6px 10px; border-radius: 8px; cursor: pointer; font-size: 18px; }
+
+  /* ── Alerts ── */
+  .alert { padding: 12px 16px; border-radius: var(--radius); font-size: 13px; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+  .alert-info { background: rgba(108,99,255,.1); border: 1px solid rgba(108,99,255,.3); color: var(--accent); }
+  .alert-error { background: rgba(239,69,101,.1); border: 1px solid rgba(239,69,101,.3); color: var(--danger); }
+  .alert-success { background: rgba(67,233,123,.1); border: 1px solid rgba(67,233,123,.3); color: var(--success); }
+
+  /* ── Loading spinner ── */
+  .spinner { width: 20px; height: 20px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin .7s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Explanation box ── */
+  .explanation-box {
+    background: rgba(108,99,255,.05); border: 1px solid rgba(108,99,255,.2);
+    border-radius: var(--radius); padding: 14px; font-size: 13px;
+    line-height: 1.6; color: var(--text); margin-top: 12px;
+  }
+  .explanation-label { font-size: 11px; font-weight: 700; color: var(--accent); text-transform: uppercase; letter-spacing: .08em; margin-bottom: 6px; }
+
+  /* ── Empty state ── */
+  .empty-state { text-align: center; padding: 64px 24px; color: var(--muted); }
+  .empty-icon { font-size: 48px; margin-bottom: 12px; }
+  .empty-title { font-family: 'Syne', sans-serif; font-size: 18px; font-weight: 700; color: var(--text); margin-bottom: 8px; }
+
+  /* ── API status dot ── */
+  .api-status { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); margin-top: auto; padding-top: 16px; }
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .status-dot.ok { background: var(--success); box-shadow: 0 0 6px var(--success); }
+  .status-dot.error { background: var(--danger); }
+
+  .mb16 { margin-bottom: 16px; }
+  .mb24 { margin-bottom: 24px; }
+  .mt16 { margin-top: 16px; }
+  .flex { display: flex; }
+  .flex-between { display: flex; align-items: center; justify-content: space-between; }
+  .gap8 { gap: 8px; }
+  .gap16 { gap: 16px; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script>
+const { useState, useEffect, useRef, useCallback } = React;
+
+const API = 'http://localhost:8000';
+
+async function apiFetch(path, opts={}) {
+  const res = await fetch(API + path, opts);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({detail: res.statusText}));
+    throw new Error(err.detail || 'API error');
+  }
+  return res.json();
+}
+
+// ─── Score helpers ────────────────────────────────────────────────────────────
+function scoreClass(s) {
+  if (s >= 0.7) return 'score-high';
+  if (s >= 0.45) return 'score-mid';
+  return 'score-low';
+}
+function pct(v) { return `${Math.round(v*100)}%`; }
+function barColor(v) {
+  if (v >= 0.7) return 'var(--success)';
+  if (v >= 0.45) return 'var(--warning)';
+  return 'var(--danger)';
+}
+
+// ─── Components ───────────────────────────────────────────────────────────────
+
+function TagInput({ value, onChange, placeholder }) {
+  const [input, setInput] = useState('');
+  const add = () => {
+    const v = input.trim();
+    if (v && !value.includes(v)) onChange([...value, v]);
+    setInput('');
+  };
+  return React.createElement('div', null,
+    React.createElement('div', { style:{display:'flex',gap:'8px'} },
+      React.createElement('input', {
+        className: 'form-input', value: input, placeholder,
+        onChange: e => setInput(e.target.value),
+        onKeyDown: e => { if (e.key === 'Enter') { e.preventDefault(); add(); } },
+        style: { flex:1 }
+      }),
+      React.createElement('button', { className:'btn btn-secondary btn-sm', onClick: add }, '+ Add')
+    ),
+    value.length > 0 && React.createElement('div', { className:'tags-input' },
+      value.map(t => React.createElement('span', { key:t, className:'tag' },
+        t,
+        React.createElement('span', { className:'tag-remove', onClick:()=>onChange(value.filter(x=>x!==t)) }, '×')
+      ))
+    )
+  );
+}
+
+function ScoreBreakdownViz({ breakdown }) {
+  const rows = [
+    { label: 'Semantic Match', val: breakdown.semantic_similarity },
+    { label: 'Skill Coverage', val: breakdown.skill_match_score },
+    { label: 'Experience Fit', val: breakdown.experience_score },
+  ];
+  return React.createElement('div', null,
+    rows.map(r => React.createElement('div', { key:r.label, className:'breakdown-row' },
+      React.createElement('span', { className:'breakdown-label' }, r.label),
+      React.createElement('div', { className:'breakdown-bar' },
+        React.createElement('div', { className:'breakdown-fill', style:{ width:pct(r.val), background:barColor(r.val) } })
+      ),
+      React.createElement('span', { className:'breakdown-val' }, pct(r.val))
+    ))
+  );
+}
+
+function CandidateModal({ result, onClose }) {
+  const c = result.candidate;
+  return React.createElement('div', { className:'modal-backdrop', onClick:e=>{ if(e.target===e.currentTarget)onClose(); } },
+    React.createElement('div', { className:'modal' },
+      React.createElement('div', { className:'modal-header' },
+        React.createElement('div', null,
+          React.createElement('div', { className:'modal-title' }, c.name),
+          React.createElement('div', { style:{fontSize:'13px',color:'var(--muted)',marginTop:'4px'} },
+            `Rank #${result.rank} • Score ${pct(result.score)}`
+          )
+        ),
+        React.createElement('button', { className:'modal-close', onClick:onClose }, '×')
+      ),
+
+      // Score
+      React.createElement('div', { className:'card mb16' },
+        React.createElement('div', { className:'card-title' }, '📊 Score Breakdown'),
+        React.createElement(ScoreBreakdownViz, { breakdown: result.score_breakdown })
+      ),
+
+      // Explanation (XAI)
+      React.createElement('div', { className:'explanation-box' },
+        React.createElement('div', { className:'explanation-label' }, '🔍 AI Explanation'),
+        result.explanation
+      ),
+
+      // Skills
+      React.createElement('div', { className:'card mt16 mb16' },
+        React.createElement('div', { className:'card-title' }, '🛠️ Skills Analysis'),
+        React.createElement('div', { style:{marginBottom:'8px',fontSize:'12px',color:'var(--muted)'} }, 'Matched'),
+        React.createElement('div', { className:'tags-input' },
+          result.matched_skills.map(s => React.createElement('span',{key:s,className:'tag skill-match'}, s))
+        ),
+        result.missing_skills.length > 0 && React.createElement('div', null,
+          React.createElement('div', { style:{margin:'10px 0 6px',fontSize:'12px',color:'var(--muted)'} }, 'Missing Required'),
+          React.createElement('div', { className:'tags-input' },
+            result.missing_skills.map(s => React.createElement('span',{key:s,className:'tag skill-miss'}, s))
+          )
+        )
+      ),
+
+      // Details
+      React.createElement('div', { className:'grid2', style:{marginBottom:'16px'} },
+        React.createElement('div', { className:'card' },
+          React.createElement('div', { className:'card-title' }, '🎓 Education'),
+          c.education.length ? c.education.map((e,i)=>React.createElement('div',{key:i,style:{fontSize:'13px',color:'var(--muted)',marginBottom:'4px'}},e))
+          : React.createElement('div',{style:{fontSize:'13px',color:'var(--muted)'}},'Not specified')
+        ),
+        React.createElement('div', { className:'card' },
+          React.createElement('div', { className:'card-title' }, '💼 Experience'),
+          React.createElement('div', { style:{fontSize:'24px',fontFamily:'Syne',fontWeight:'800'} }, `${c.years_experience}y`),
+          c.work_history.slice(0,3).map((w,i) => React.createElement('div',{key:i,style:{fontSize:'12px',color:'var(--muted)',marginTop:'4px'}}, w))
+        )
+      ),
+
+      c.projects.length > 0 && React.createElement('div', { className:'card' },
+        React.createElement('div', { className:'card-title' }, '🚀 Projects'),
+        c.projects.map((p,i) => React.createElement('div', { key:i, style:{marginBottom:'12px'} },
+          React.createElement('div', { style:{fontWeight:'600',fontSize:'14px'} }, p.name),
+          React.createElement('div', { style:{fontSize:'12px',color:'var(--muted)',margin:'2px 0'} }, p.description),
+          React.createElement('div', { className:'tags-input' },
+            p.technologies.map(t => React.createElement('span',{key:t,className:'tag',style:{fontSize:'10px'}},t))
+          )
+        ))
+      )
+    )
+  );
+}
+
+// ─── Pages ────────────────────────────────────────────────────────────────────
+
+function Dashboard({ stats }) {
+  if (!stats) return React.createElement('div', { className:'empty-state' },
+    React.createElement('div', { className:'spinner' })
+  );
+  const items = [
+    { icon:'👥', val:stats.total_candidates, label:'Total Candidates', color:'var(--accent)' },
+    { icon:'💼', val:stats.total_jobs, label:'Job Openings', color:'var(--accent2)' },
+    { icon:'📅', val:`${stats.avg_experience}y`, label:'Avg Experience', color:'var(--accent3)' },
+    { icon:'📤', val:stats.candidates_last_24h, label:'Uploaded Today', color:'var(--warning)' },
+  ];
+  return React.createElement('div', null,
+    React.createElement('div', { className:'page-header' },
+      React.createElement('div', { className:'page-title' }, '📊 Dashboard'),
+      React.createElement('div', { className:'page-subtitle' }, 'Overview of your talent pipeline')
+    ),
+    React.createElement('div', { className:'grid4 mb24' },
+      items.map(it => React.createElement('div', { key:it.label, className:'stat-card' },
+        React.createElement('div', { className:'stat-icon' }, it.icon),
+        React.createElement('div', { className:'stat-value', style:{color:it.color} }, it.val),
+        React.createElement('div', { className:'stat-label' }, it.label)
+      ))
+    ),
+    React.createElement('div', { className:'card' },
+      React.createElement('div', { className:'card-title' }, '🔥 Top Skills in Pipeline'),
+      React.createElement('div', { style:{display:'flex',flexWrap:'wrap',gap:'8px'} },
+        Object.entries(stats.top_skills).map(([skill,count]) =>
+          React.createElement('div', { key:skill, style:{
+            background:'var(--surface2)', border:'1px solid var(--border)',
+            borderRadius:'8px', padding:'8px 14px', fontSize:'13px'
+          }},
+            React.createElement('span', { style:{color:'var(--text)',fontWeight:'600'} }, skill),
+            React.createElement('span', { style:{color:'var(--accent)',marginLeft:'8px',fontFamily:'DM Mono'} }, count)
+          )
+        )
+      )
+    )
+  );
+}
+
+function UploadPage({ onUpload }) {
+  const [dragging, setDragging] = useState(false);
+  const [files, setFiles] = useState([]);
+  const [uploading, setUploading] = useState(false);
+  const [results, setResults] = useState([]);
+  const [error, setError] = useState('');
+  const inputRef = useRef();
+
+  const processFiles = async (fileList) => {
+    const pdfs = Array.from(fileList).filter(f=>f.name.toLowerCase().endsWith('.pdf'));
+    if (!pdfs.length) { setError('Please select PDF files only'); return; }
+    setFiles(pdfs); setError(''); setResults([]);
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      if (pdfs.length === 1) {
+        fd.append('file', pdfs[0]);
+        const r = await apiFetch('/api/resume/upload', { method:'POST', body:fd });
+        setResults([r]);
+        onUpload();
+      } else {
+        pdfs.forEach(f => fd.append('files', f));
+        const r = await apiFetch('/api/resume/batch', { method:'POST', body:fd });
+        setResults(r);
+        onUpload();
+      }
+    } catch(e) { setError(e.message); }
+    finally { setUploading(false); }
+  };
+
+  return React.createElement('div', null,
+    React.createElement('div', { className:'page-header' },
+      React.createElement('div', { className:'page-title' }, '📤 Upload Resumes'),
+      React.createElement('div', { className:'page-subtitle' }, 'Upload PDF resumes — AI extracts skills, experience & projects automatically')
+    ),
+    React.createElement('div', { className:'grid2' },
+      React.createElement('div', null,
+        error && React.createElement('div', { className:'alert alert-error mb16' }, '⚠️ ', error),
+        React.createElement('div', {
+          className: `upload-zone ${dragging?'drag-over':''}`,
+          onClick: ()=>inputRef.current.click(),
+          onDragOver: e=>{ e.preventDefault(); setDragging(true); },
+          onDragLeave: ()=>setDragging(false),
+          onDrop: e=>{ e.preventDefault(); setDragging(false); processFiles(e.dataTransfer.files); }
+        },
+          React.createElement('div', { className:'upload-icon' }, '📄'),
+          React.createElement('div', { className:'upload-title' }, uploading ? 'Processing...' : 'Drop PDFs here'),
+          React.createElement('div', { className:'upload-sub' }, 'or click to browse • max 5MB per file • up to 20 files'),
+          uploading && React.createElement('div', { style:{marginTop:'16px'} },
+            React.createElement('div', { className:'spinner', style:{margin:'0 auto'} })
+          )
+        ),
+        React.createElement('input', { type:'file', ref:inputRef, accept:'.pdf', multiple:true, style:{display:'none'}, onChange:e=>processFiles(e.target.files) })
+      ),
+      React.createElement('div', null,
+        React.createElement('div', { className:'card' },
+          React.createElement('div', { className:'card-title' }, '✅ Parsed Candidates'),
+          results.length === 0
+            ? React.createElement('div', { style:{fontSize:'13px',color:'var(--muted)',padding:'32px 0',textAlign:'center'} }, 'Uploaded resumes will appear here')
+            : results.map(c => React.createElement('div', { key:c.id, className:'candidate-row' },
+                React.createElement('div', { className:'candidate-info' },
+                  React.createElement('div', { className:'candidate-name' }, c.name),
+                  React.createElement('div', { className:'candidate-meta' }, `${c.years_experience}y exp • ${c.skills.length} skills`),
+                  React.createElement('div', { className:'skill-chips' },
+                    c.skills.slice(0,5).map(s=>React.createElement('span',{key:s,className:'skill-chip skill-match'},s))
+                  )
+                ),
+                React.createElement('span', { style:{color:'var(--success)',fontSize:'20px'} }, '✓')
+              ))
+        )
+      )
+    )
+  );
+}
+
+function JobsPage({ jobs, setJobs }) {
+  const [form, setForm] = useState({ title:'', description:'', required_skills:[], preferred_skills:[], min_experience_years:0 });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+
+  const save = async () => {
+    if (!form.title || !form.description) { setError('Title and description are required'); return; }
+    setSaving(true); setError(''); setSuccess('');
+    try {
+      const j = await apiFetch('/api/job', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(form) });
+      setJobs(prev => [...prev, j]);
+      setSuccess(`Job "${j.title}" created!`);
+      setForm({ title:'', description:'', required_skills:[], preferred_skills:[], min_experience_years:0 });
+    } catch(e) { setError(e.message); }
+    finally { setSaving(false); }
+  };
+
+  return React.createElement('div', null,
+    React.createElement('div', { className:'page-header' },
+      React.createElement('div', { className:'page-title' }, '💼 Job Descriptions'),
+      React.createElement('div', { className:'page-subtitle' }, 'Define roles and required skills for AI matching')
+    ),
+    React.createElement('div', { className:'grid2' },
+      React.createElement('div', { className:'card' },
+        React.createElement('div', { className:'card-title' }, '➕ Create Job'),
+        error && React.createElement('div',{className:'alert alert-error'},error),
+        success && React.createElement('div',{className:'alert alert-success'},success),
+        React.createElement('div', { className:'form-group' },
+          React.createElement('label', { className:'form-label' }, 'Job Title'),
+          React.createElement('input', { className:'form-input', placeholder:'e.g. Senior ML Engineer', value:form.title, onChange:e=>setForm({...form,title:e.target.value}) })
+        ),
+        React.createElement('div', { className:'form-group' },
+          React.createElement('label', { className:'form-label' }, 'Job Description'),
+          React.createElement('textarea', { className:'form-textarea', placeholder:'Describe the role, responsibilities, tech stack...', value:form.description, onChange:e=>setForm({...form,description:e.target.value}) })
+        ),
+        React.createElement('div', { className:'form-group' },
+          React.createElement('label', { className:'form-label' }, 'Required Skills'),
+          React.createElement(TagInput, { value:form.required_skills, onChange:v=>setForm({...form,required_skills:v}), placeholder:'Python, React...' })
+        ),
+        React.createElement('div', { className:'form-group' },
+          React.createElement('label', { className:'form-label' }, 'Preferred Skills'),
+          React.createElement(TagInput, { value:form.preferred_skills, onChange:v=>setForm({...form,preferred_skills:v}), placeholder:'Kubernetes, MLflow...' })
+        ),
+        React.createElement('div', { className:'form-group' },
+          React.createElement('label', { className:'form-label' }, 'Min. Years of Experience'),
+          React.createElement('input', { type:'number', min:0, max:30, className:'form-input', value:form.min_experience_years, onChange:e=>setForm({...form,min_experience_years:parseInt(e.target.value)||0}) })
+        ),
+        React.createElement('button', { className:'btn btn-primary', onClick:save, disabled:saving },
+          saving ? React.createElement('span', { className:'spinner' }) : null, ' Save Job'
+        )
+      ),
+      React.createElement('div', null,
+        React.createElement('div', { className:'card' },
+          React.createElement('div', { className:'card-title' }, `📋 Jobs (${jobs.length})`),
+          jobs.length === 0
+            ? React.createElement('div', { style:{fontSize:'13px',color:'var(--muted)',textAlign:'center',padding:'32px 0'} }, 'No jobs yet')
+            : jobs.map(j => React.createElement('div', { key:j.id, style:{
+                background:'var(--surface2)', borderRadius:'var(--radius)', padding:'14px',
+                marginBottom:'10px', border:'1px solid var(--border)'
+              }},
+                React.createElement('div', { style:{fontFamily:'Syne',fontWeight:'700',fontSize:'15px',marginBottom:'4px'} }, j.title),
+                React.createElement('div', { style:{fontSize:'12px',color:'var(--muted)',marginBottom:'8px'} }, j.description.slice(0,80)+'...'),
+                React.createElement('div', { className:'tags-input' },
+                  j.required_skills.map(s=>React.createElement('span',{key:s,className:'tag'},s))
+                )
+              ))
+        )
+      )
+    )
+  );
+}
+
+function ShortlistPage({ jobs, candidates }) {
+  const [selectedJob, setSelectedJob] = useState('');
+  const [topK, setTopK] = useState(10);
+  const [minScore, setMinScore] = useState(0);
+  const [results, setResults] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [modal, setModal] = useState(null);
+
+  const run = async () => {
+    if (!selectedJob) { setError('Select a job first'); return; }
+    setLoading(true); setError(''); setResults([]);
+    try {
+      const data = await apiFetch('/api/shortlist', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ job_id:selectedJob, top_k:topK, min_score:minScore })
+      });
+      setResults(data);
+    } catch(e) { setError(e.message); }
+    finally { setLoading(false); }
+  };
+
+  return React.createElement('div', null,
+    modal && React.createElement(CandidateModal, { result:modal, onClose:()=>setModal(null) }),
+    React.createElement('div', { className:'page-header' },
+      React.createElement('div', { className:'page-title' }, '🎯 Shortlist Candidates'),
+      React.createElement('div', { className:'page-subtitle' }, 'AI ranks candidates using semantic similarity + skill match + experience scoring')
+    ),
+    React.createElement('div', { className:'card mb24' },
+      React.createElement('div', { style:{display:'flex',gap:'16px',alignItems:'flex-end',flexWrap:'wrap'} },
+        React.createElement('div', { style:{flex:'2',minWidth:'200px'} },
+          React.createElement('label', { className:'form-label' }, 'Job Position'),
+          React.createElement('select', { className:'form-select', value:selectedJob, onChange:e=>setSelectedJob(e.target.value) },
+            React.createElement('option', { value:'' }, '— Select a job —'),
+            jobs.map(j => React.createElement('option',{key:j.id,value:j.id}, j.title))
+          )
+        ),
+        React.createElement('div', { style:{flex:'1',minWidth:'120px'} },
+          React.createElement('label', { className:'form-label' }, 'Top K Results'),
+          React.createElement('input', { type:'number', min:1, max:100, className:'form-input', value:topK, onChange:e=>setTopK(parseInt(e.target.value)||10) })
+        ),
+        React.createElement('div', { style:{flex:'1',minWidth:'140px'} },
+          React.createElement('label', { className:'form-label' }, 'Min Score (0-1)'),
+          React.createElement('input', { type:'number', min:0, max:1, step:0.05, className:'form-input', value:minScore, onChange:e=>setMinScore(parseFloat(e.target.value)||0) })
+        ),
+        React.createElement('button', { className:'btn btn-primary', onClick:run, disabled:loading || !selectedJob },
+          loading ? React.createElement('span',{className:'spinner'}) : '⚡',
+          ' Run Shortlist'
+        )
+      ),
+      error && React.createElement('div',{className:'alert alert-error',style:{marginTop:'12px'}},error)
+    ),
+
+    results.length > 0 && React.createElement('div', null,
+      React.createElement('div', { className:'flex-between mb16' },
+        React.createElement('div', { style:{fontFamily:'Syne',fontWeight:'700',fontSize:'18px'} },
+          `${results.length} Candidates Ranked`
+        ),
+        React.createElement('div', { style:{fontSize:'12px',color:'var(--muted)'} },
+          'Click a candidate for full analysis'
+        )
+      ),
+      results.map(r => React.createElement('div', { key:r.candidate.id, className:'candidate-row', onClick:()=>setModal(r) },
+        React.createElement('div', { className:`rank-badge rank-${r.rank}` }, `#${r.rank}`),
+        React.createElement('div', { className:'candidate-info' },
+          React.createElement('div', { className:'candidate-name' }, r.candidate.name),
+          React.createElement('div', { className:'candidate-meta' },
+            `${r.candidate.years_experience}y exp • ${r.candidate.skills.length} skills`
+          ),
+          React.createElement('div', { className:'skill-chips', style:{marginTop:'6px'} },
+            r.matched_skills.slice(0,4).map(s=>React.createElement('span',{key:s,className:'skill-chip skill-match'},s)),
+            r.missing_skills.slice(0,2).map(s=>React.createElement('span',{key:s,className:'skill-chip skill-miss'},s))
+          )
+        ),
+        React.createElement('div', { style:{textAlign:'right'} },
+          React.createElement('div', { className:`score-badge ${scoreClass(r.score)}` }, pct(r.score)),
+          React.createElement('div', { style:{fontSize:'11px',color:'var(--muted)',marginTop:'4px'} }, 'Overall Score')
+        )
+      ))
+    ),
+
+    !loading && results.length === 0 && candidates.length === 0 && React.createElement('div', { className:'empty-state' },
+      React.createElement('div', { className:'empty-icon' }, '🔍'),
+      React.createElement('div', { className:'empty-title' }, 'No candidates yet'),
+      React.createElement('div', null, 'Upload some resumes first, then run the shortlister.')
+    )
+  );
+}
+
+function CandidatesPage({ candidates, onRefresh }) {
+  const [filter, setFilter] = useState('');
+  const [deleting, setDeleting] = useState(null);
+
+  const filtered = candidates.filter(c =>
+    !filter || c.name.toLowerCase().includes(filter.toLowerCase()) ||
+    c.skills.some(s=>s.toLowerCase().includes(filter.toLowerCase()))
+  );
+
+  const del = async (id) => {
+    setDeleting(id);
+    try { await apiFetch(`/api/candidates/${id}`, { method:'DELETE' }); onRefresh(); }
+    catch(e) { alert(e.message); }
+    finally { setDeleting(null); }
+  };
+
+  return React.createElement('div', null,
+    React.createElement('div', { className:'page-header' },
+      React.createElement('div', { className:'flex-between' },
+        React.createElement('div', null,
+          React.createElement('div', { className:'page-title' }, '👥 Candidates'),
+          React.createElement('div', { className:'page-subtitle' }, `${candidates.length} resumes in pipeline`)
+        ),
+        React.createElement('button', { className:'btn btn-secondary', onClick:onRefresh }, '🔄 Refresh')
+      )
+    ),
+    React.createElement('div', { className:'form-group' },
+      React.createElement('input', { className:'form-input', placeholder:'🔍 Filter by name or skill...', value:filter, onChange:e=>setFilter(e.target.value) })
+    ),
+    filtered.length === 0 && React.createElement('div', { className:'empty-state' },
+      React.createElement('div', { className:'empty-icon' }, '📋'),
+      React.createElement('div', { className:'empty-title' }, candidates.length === 0 ? 'No candidates yet' : 'No results'),
+      React.createElement('div', null, candidates.length === 0 ? 'Upload resumes on the Upload page.' : 'Try a different search.')
+    ),
+    filtered.map(c => React.createElement('div', { key:c.id, className:'candidate-row' },
+      React.createElement('div', { className:'candidate-info' },
+        React.createElement('div', { className:'candidate-name' }, c.name),
+        React.createElement('div', { className:'candidate-meta' },
+          [c.email, `${c.years_experience}y`, `${c.skills.length} skills`].filter(Boolean).join(' · ')
+        ),
+        React.createElement('div', { className:'skill-chips', style:{marginTop:'6px'} },
+          c.skills.slice(0,6).map(s=>React.createElement('span',{key:s,className:'skill-chip skill-match'},s)),
+          c.skills.length > 6 && React.createElement('span',{className:'tag',style:{fontSize:'10px'}},`+${c.skills.length-6}`)
+        )
+      ),
+      React.createElement('button', {
+        className:'btn btn-danger btn-sm',
+        disabled: deleting===c.id,
+        onClick: ()=>del(c.id)
+      }, deleting===c.id ? '...' : '🗑')
+    ))
+  );
+}
+
+// ─── App Root ─────────────────────────────────────────────────────────────────
+function App() {
+  const [page, setPage] = useState('dashboard');
+  const [stats, setStats] = useState(null);
+  const [jobs, setJobs] = useState([]);
+  const [candidates, setCandidates] = useState([]);
+  const [apiOk, setApiOk] = useState(null);
+
+  const loadAll = useCallback(async () => {
+    try {
+      const [s, j, c] = await Promise.all([
+        apiFetch('/api/dashboard/stats'),
+        apiFetch('/api/jobs'),
+        apiFetch('/api/candidates'),
+      ]);
+      setStats(s); setJobs(j); setCandidates(c);
+      setApiOk(true);
+    } catch { setApiOk(false); }
+  }, []);
+
+  useEffect(() => { loadAll(); }, [loadAll]);
+
+  const nav = [
+    { id:'dashboard', icon:'📊', label:'Dashboard' },
+    { id:'upload', icon:'📤', label:'Upload Resumes' },
+    { id:'jobs', icon:'💼', label:'Job Descriptions' },
+    { id:'shortlist', icon:'🎯', label:'Shortlist' },
+    { id:'candidates', icon:'👥', label:'All Candidates' },
+  ];
+
+  const pages = {
+    dashboard: React.createElement(Dashboard, { stats }),
+    upload: React.createElement(UploadPage, { onUpload: loadAll }),
+    jobs: React.createElement(JobsPage, { jobs, setJobs }),
+    shortlist: React.createElement(ShortlistPage, { jobs, candidates }),
+    candidates: React.createElement(CandidatesPage, { candidates, onRefresh: loadAll }),
+  };
+
+  return React.createElement('div', { className:'layout' },
+    React.createElement('div', { className:'sidebar' },
+      React.createElement('div', { className:'logo' },
+        React.createElement('div', { className:'logo-icon' }, '🧠'),
+        'ResumeIQ'
+      ),
+      React.createElement('div', { className:'nav-section-label' }, 'Navigation'),
+      nav.map(n => React.createElement('button', {
+        key:n.id, className:`nav-item ${page===n.id?'active':''}`,
+        onClick:()=>setPage(n.id)
+      },
+        React.createElement('span', { className:'nav-icon' }, n.icon),
+        n.label
+      )),
+      React.createElement('div', { className:'api-status' },
+        React.createElement('div', { className:`status-dot ${apiOk===true?'ok':apiOk===false?'error':''}` }),
+        apiOk===true ? 'API Connected' : apiOk===false ? 'API Offline' : 'Connecting...'
+      )
+    ),
+    React.createElement('div', { className:'main' },
+      apiOk === false && React.createElement('div', { className:'alert alert-error mb16' },
+        '⚠️ Cannot reach backend at localhost:8000. Start the FastAPI server first.'
+      ),
+      pages[page]
+    )
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App));
+</script>
+</body>
+</html>
