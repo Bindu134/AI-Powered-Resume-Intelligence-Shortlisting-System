@@ -98,7 +98,6 @@ class ResumeParser:
             raise ImportError("python-docx not installed. Run: pip install python-docx")
         doc = docx.Document(io.BytesIO(content))
         paragraphs = [p.text for p in doc.paragraphs if p.text.strip()]
-        # Also extract text from tables inside the DOCX
         for table in doc.tables:
             for row in table.rows:
                 for cell in row.cells:
@@ -111,12 +110,12 @@ class ResumeParser:
         try:
             return content.decode("utf-8")
         except UnicodeDecodeError:
-            return content.decode("latin-1")  # fallback encoding
+            return content.decode("latin-1")
 
     def _extract_text_from_image(self, content: bytes) -> str:
         """Extract text from image using OCR (pytesseract)."""
         if not HAS_OCR:
-            raise ImportError("pytesseract or Pillow not installed. Run: pip install pytesseract Pillow")
+            raise ImportError("pytesseract or Pillow not installed.")
         image = Image.open(io.BytesIO(content))
         text = pytesseract.image_to_string(image)
         return text
@@ -148,14 +147,13 @@ class ResumeParser:
     )
     def _call_llm(self, text: str) -> dict:
         """Call Claude to parse resume text."""
-        prompt = PARSE_PROMPT.format(text=text[:8000])  # cap tokens
+        prompt = PARSE_PROMPT.format(text=text[:8000])
         message = self.client.messages.create(
             model="claude-haiku-4-5-20251001",
             max_tokens=2048,
             messages=[{"role": "user", "content": prompt}],
         )
         raw = message.content[0].text.strip()
-        # Extract JSON even if surrounded by markdown
         match = re.search(r"\{.*\}", raw, re.DOTALL)
         if match:
             return json.loads(match.group())
@@ -163,19 +161,15 @@ class ResumeParser:
 
     def _rule_based_parse(self, text: str) -> dict:
         """Fallback rule-based parser when no API key."""
-        # Extract email
         email_match = re.search(r"[\w.+-]+@[\w-]+\.\w+", text)
         email = email_match.group() if email_match else None
 
-        # Extract phone
         phone_match = re.search(r"[\+\(]?\d[\d\s\-\(\)]{8,}", text)
         phone = phone_match.group().strip() if phone_match else None
 
-        # Extract name (first line that looks like a name)
         lines = [l.strip() for l in text.split("\n") if l.strip()]
         name = lines[0] if lines else "Unknown"
 
-        # Common tech skills keyword extraction
         SKILLS_VOCAB = {
             "python", "java", "javascript", "typescript", "react", "vue", "angular",
             "node", "django", "flask", "fastapi", "sql", "mysql", "postgresql",
@@ -188,13 +182,12 @@ class ResumeParser:
         text_lower = text.lower()
         skills = [s for s in SKILLS_VOCAB if s in text_lower]
 
-        # Estimate experience from year ranges
         years = re.findall(r"(20\d{2}|19\d{2})", text)
         years_int = sorted(set(int(y) for y in years))
         exp = 0.0
         if len(years_int) >= 2:
             exp = float(years_int[-1] - years_int[0])
-            exp = min(exp, 30)  # sanity cap
+            exp = min(exp, 30)
 
         return {
             "name": name,
@@ -212,7 +205,7 @@ class ResumeParser:
     # ─────────────────────────────────────────────
 
     async def parse(self, content: bytes, filename: str) -> CandidateProfile:
-        """Main entry: file bytes → CandidateProfile. Supports PDF, DOCX, TXT, images."""
+        """Main entry: file bytes -> CandidateProfile. Supports PDF, DOCX, TXT, images."""
         try:
             text = self._extract_text(content, filename)
         except Exception as e:
@@ -223,7 +216,6 @@ class ResumeParser:
             logger.warning(f"No text extracted from {filename}, using filename as fallback.")
             text = f"Resume file: {filename}"
 
-        # Parse structured data
         if self.use_llm:
             try:
                 data = self._call_llm(text)
@@ -233,7 +225,6 @@ class ResumeParser:
         else:
             data = self._rule_based_parse(text)
 
-        # Build projects
         projects = []
         for p in data.get("projects", []):
             if isinstance(p, dict):
@@ -257,21 +248,3 @@ class ResumeParser:
             filename=filename,
             uploaded_at=datetime.utcnow().isoformat(),
         )
-```
-
----
-
-**What changed from your original:**
-
-1. Added `python-docx`, `pytesseract`, and `Pillow` imports with safe try/except blocks
-2. Added `_extract_text_from_docx()` — handles DOCX including tables inside the document
-3. Added `_extract_text_from_txt()` — handles TXT with UTF-8 and latin-1 fallback encoding
-4. Added `_extract_text_from_image()` — OCR support for PNG, JPG, JPEG, TIFF, BMP, WEBP
-5. Added `_extract_text()` — a smart router that picks the right extractor based on file extension
-6. Updated `parse()` — now calls `_extract_text()` instead of directly calling `_extract_text_from_pdf()`
-
-Also update your `requirements.txt` by adding:
-```
-python-docx
-pytesseract
-Pillow
