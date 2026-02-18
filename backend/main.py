@@ -52,12 +52,12 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 USERS_DB = {
     "admin": {
         "username": "admin",
-        "hashed_password": pwd_context.hash("admin123"),  # change in production
+        "hashed_password": pwd_context.hash("admin123"),
         "role": "admin",
     },
     "recruiter": {
         "username": "recruiter",
-        "hashed_password": pwd_context.hash("recruiter123"),  # change in production
+        "hashed_password": pwd_context.hash("recruiter123"),
         "role": "recruiter",
     },
 }
@@ -82,7 +82,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── In-memory stores (production would use a real DB) ─────────────────────────
+# ── In-memory stores ──────────────────────────────────────────────────────────
 candidates_db: dict[str, CandidateProfile] = {}
 jobs_db: dict[str, JobDescription] = {}
 
@@ -179,7 +179,7 @@ async def upload_resume(
     if len(content) > 5 * 1024 * 1024:
         raise HTTPException(413, "File size must be < 5 MB")
 
-   try:
+    try:
         candidate = await parser.parse(content, file.filename)
         embedding = vector_store.embed(candidate.summary_text())
         candidate.embedding = embedding.tolist()
@@ -189,3 +189,173 @@ async def upload_resume(
     except Exception as e:
         logger.error(f"Parse error: {e}")
         raise HTTPException(500, f"Failed to parse resume: {str(e)}")
+
+
+# ── Batch Upload ──────────────────────────────────────────────────────────────
+
+@app.post("/api/resume/batch", response_model=list[CandidateProfile])
+@limiter.limit("3/minute")
+async def batch_upload(
+    request: Request,
+    files: list[UploadFile] = File(...),
+    current_user: dict = Depends(get_current_user),
+):
+    """Upload multiple resumes concurrently (max 20)."""
+    if len(files) > 20:
+        raise HTTPException(400, "Maximum 20 files per batch")
+
+    async def process_one(f: UploadFile):
+        try:
+            content = await f.read()
+            c = await parser.parse(content, f.filename)
+            emb = vector_store.embed(c.summary_text())
+            c.embedding = emb.tolist()
+            candidates_db[c.id] = c
+            return c
+        except Exception as e:
+            logger.warning(f"Skipping {f.filename}: {e}")
+            return None
+
+    results = await asyncio.gather(*[process_one(f) for f in files])
+    return [r for r in results if r is not None]
+
+
+# ── Job Description ───────────────────────────────────────────────────────────
+
+@app.post("/api/job", response_model=JobDescription)
+async def create_job(
+    job: JobDescription,
+    current_user: dict = Depends(get_current_user),
+):
+    """Register a job description."""
+    job.id = job.id or str(uuid.uuid4())
+    jobs_db[job.id] = job
+    return job
+
+
+@app.get("/api/jobs", response_model=list[JobDescription])
+async def list_jobs(current_user: dict = Depends(get_current_user)):
+    return list(jobs_db.values())
+
+
+# ── Shortlist ─────────────────────────────────────────────────────────────────
+
+@app.post("/api/shortlist", response_model=list[ShortlistResult])
+@limiter.limit("20/minute")
+async def shortlist_candidates(
+    request: Request,
+    req: ShortlistRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """Rank all candidates for a given job description."""
+    if not candidates_db:
+        raise HTTPException(404, "No candidates in the system")
+
+    job = jobs_db.get(req.job_id)
+    if not job:
+        raise HTTPException(404, "Job not found")
+
+    job_emb = vector_store.embed(job.description)
+    results = ranker.rank(
+        job=job,
+        job_embedding=job_emb,
+        candidates=list(candidates_db.values()),
+        top_k=req.top_k,
+        min_score=req.min_score,
+    )
+    return results
+
+
+# ── Candidate CRUD ────────────────────────────────────────────────────────────
+
+@app.get("/api/candidates", response_model=list[CandidateProfile])
+async def list_candidates(
+    skill: Optional[str] = None,
+    min_exp: Optional[int] = None,
+    current_user: dict = Depends(get_current_user),
+):
+    """List candidates with optional filters."""
+    candidates = list(candidates_db.values())
+    if skill:
+        candidates = [c for c in candidates if skill.lower() in [s.lower() for s in c.skills]]
+    if min_exp is not None:
+        candidates = [c for c in candidates if c.years_experience >= min_exp]
+    return candidates
+
+
+@app.get("/api/candidates/{cid}", response_model=CandidateProfile)
+async def get_candidate(
+    cid: str,
+    current_user: dict = Depends(get_current_user),
+):
+    c = candidates_db.get(cid)
+    if not c:
+        raise HTTPException(404, "Candidate not found")
+    return c
+
+
+@app.delete("/api/candidates/{cid}")
+async def delete_candidate(
+    cid: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Delete candidate data (GDPR compliance — right to erasure)."""
+    if cid not in candidates_db:
+        raise HTTPException(404, "Candidate not found")
+    del candidates_db[cid]
+    try:
+        vector_store.delete(cid)
+    except Exception:
+        pass
+    logger.info(f"Candidate {cid} deleted by user '{current_user['username']}' (GDPR erasure)")
+    return {"deleted": cid, "message": "Candidate data permanently erased."}
+
+
+# ── GDPR — Delete ALL data for a candidate by email ──────────────────────────
+
+@app.delete("/api/gdpr/erase")
+async def gdpr_erase_by_email(
+    email: str,
+    current_user: dict = Depends(require_admin),
+):
+    """GDPR Right to Erasure — delete ALL data for a candidate by email. Admin only."""
+    to_delete = [cid for cid, c in candidates_db.items() if c.email == email]
+    if not to_delete:
+        raise HTTPException(404, f"No candidate found with email: {email}")
+
+    for cid in to_delete:
+        del candidates_db[cid]
+        try:
+            vector_store.delete(cid)
+        except Exception:
+            pass
+
+    logger.info(f"GDPR erasure: deleted {len(to_delete)} record(s) for email '{email}' by admin '{current_user['username']}'")
+    return {
+        "erased_count": len(to_delete),
+        "email": email,
+        "message": "All candidate data permanently erased per GDPR request.",
+    }
+
+
+# ── Dashboard Stats ───────────────────────────────────────────────────────────
+
+@app.get("/api/dashboard/stats", response_model=DashboardStats)
+async def dashboard_stats(current_user: dict = Depends(get_current_user)):
+    all_skills: list[str] = []
+    total_exp = 0
+    for c in candidates_db.values():
+        all_skills.extend(c.skills)
+        total_exp += c.years_experience
+
+    from collections import Counter
+    skill_counts = Counter(all_skills)
+    n = len(candidates_db)
+
+    return DashboardStats(
+        total_candidates=n,
+        total_jobs=len(jobs_db),
+        avg_experience=round(total_exp / n, 1) if n else 0,
+        top_skills=dict(skill_counts.most_common(10)),
+        candidates_last_24h=n,
+    )
