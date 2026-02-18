@@ -179,10 +179,13 @@ async def upload_resume(
     if len(content) > 5 * 1024 * 1024:
         raise HTTPException(413, "File size must be < 5 MB")
 
-    try:
+   try:
         candidate = await parser.parse(content, file.filename)
         embedding = vector_store.embed(candidate.summary_text())
         candidate.embedding = embedding.tolist()
         candidates_db[candidate.id] = candidate
         logger.info(f"Parsed candidate {candidate.id}: {candidate.name} by user '{current_user['username']}'")
-        return
+        return candidate
+    except Exception as e:
+        logger.error(f"Parse error: {e}")
+        raise HTTPException(500, f"Failed to parse resume: {str(e)}")
