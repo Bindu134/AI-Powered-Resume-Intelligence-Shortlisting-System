@@ -1,8 +1,7 @@
 """
-Vector Store — sentence-transformers embeddings + FAISS ANN search.
+Vector Store - sentence-transformers embeddings + FAISS ANN search.
 Falls back to TF-IDF cosine similarity if transformers unavailable.
 """
-
 import logging
 import numpy as np
 
@@ -27,7 +26,6 @@ except ImportError:
 
 class TFIDFEmbedder:
     """Lightweight TF-IDF based text vectorizer as fallback."""
-
     def __init__(self):
         from sklearn.feature_extraction.text import TfidfVectorizer
         self.vectorizer = TfidfVectorizer(max_features=512, stop_words="english")
@@ -41,7 +39,6 @@ class TFIDFEmbedder:
 
     def transform(self, text: str) -> np.ndarray:
         if not self._fitted:
-            # Cold-start: fit on single doc
             return self.vectorizer.fit_transform([text]).toarray()[0].astype(np.float32)
         return self.vectorizer.transform([text]).toarray()[0].astype(np.float32)
 
@@ -54,12 +51,11 @@ class VectorStore:
         self.dim = dim
         self.index = None
         self.id_map: list[str] = []
-
         if HAS_FAISS:
-            self.index = faiss.IndexFlatIP(dim)  # inner product (cosine after normalise)
+            self.index = faiss.IndexFlatIP(dim)
 
     def embed(self, text: str) -> np.ndarray:
-        """Convert text → normalised embedding vector."""
+        """Convert text to normalised embedding vector."""
         if USE_TRANSFORMERS:
             vec = _model.encode([text], normalize_embeddings=True, show_progress_bar=False)[0]
             return vec.astype(np.float32)
@@ -68,7 +64,6 @@ class VectorStore:
             norm = np.linalg.norm(vec)
             if norm > 0:
                 vec = vec / norm
-            # pad/truncate to fixed dim
             if len(vec) < self.dim:
                 vec = np.pad(vec, (0, self.dim - len(vec)))
             else:
@@ -83,3 +78,11 @@ class VectorStore:
         if norm_a == 0 or norm_b == 0:
             return 0.0
         return dot / (norm_a * norm_b)
+
+    def delete(self, candidate_id: str) -> None:
+        """Remove a candidate from the id_map (FAISS flat index does not support deletion)."""
+        if candidate_id in self.id_map:
+            self.id_map.remove(candidate_id)
+            logger.info(f"Candidate {candidate_id} removed from vector store id_map.")
+        else:
+            logger.warning(f"Candidate {candidate_id} not found in vector store.")
