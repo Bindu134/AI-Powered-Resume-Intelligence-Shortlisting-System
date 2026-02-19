@@ -24,6 +24,8 @@ from slowapi.errors import RateLimitExceeded
 from tenacity import retry, stop_after_attempt, wait_exponential
 from dotenv import load_dotenv
 from jose import JWTError, jwt
+import warnings
+warnings.filterwarnings("ignore")
 from passlib.context import CryptContext
 
 load_dotenv()
