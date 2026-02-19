@@ -103,8 +103,8 @@ def _explain(rank: int, score: float, breakdown: ScoreBreakdown, matched: list[s
 def evaluate_ranking(y_true: list[int], y_pred: list[int]) -> dict:
     """
     Evaluate ranking quality using precision, recall, and F1.
-    y_true: list of 1s and 0s (1 = good fit, 0 = bad fit) — ground truth
-    y_pred: list of 1s and 0s — model predictions
+    y_true: list of 1s and 0s (1 = good fit, 0 = bad fit) - ground truth
+    y_pred: list of 1s and 0s - model predictions
     """
     if not y_true or not y_pred:
         logger.warning("Empty labels provided for evaluation.")
@@ -141,7 +141,6 @@ class CandidateRanker:
 
         for candidate in candidates:
             # 1. Semantic similarity
-            # If no embedding, generate one using the improved model
             if candidate.embedding:
                 sim = _cosine(candidate.embedding, job_embedding)
             else:
@@ -170,3 +169,31 @@ class CandidateRanker:
             breakdown = ScoreBreakdown(
                 semantic_similarity=round(sim, 4),
                 skill_match_score=round(skill_score, 4),
+                experience_score=round(exp_score, 4),
+                final_score=round(final, 4),
+            )
+
+            results.append(ShortlistResult(
+                rank=0,
+                candidate=candidate,
+                score=round(final, 4),
+                score_breakdown=breakdown,
+                matched_skills=matched,
+                missing_skills=missing,
+                explanation="",
+            ))
+
+        # Sort descending
+        results.sort(key=lambda r: r.score, reverse=True)
+        results = results[:top_k]
+
+        for i, r in enumerate(results, 1):
+            r.rank = i
+            r.explanation = _explain(
+                i, r.score, r.score_breakdown,
+                r.matched_skills, r.missing_skills,
+                r.candidate.name, job.title
+            )
+
+        logger.info(f"Ranked {len(results)} candidates for job '{job.title}'")
+        return results
