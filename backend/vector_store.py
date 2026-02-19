@@ -9,9 +9,8 @@ logger = logging.getLogger(__name__)
 
 try:
     from sentence_transformers import SentenceTransformer
-    _model = SentenceTransformer("all-MiniLM-L6-v2")
     USE_TRANSFORMERS = True
-    logger.info("Using sentence-transformers (all-MiniLM-L6-v2)")
+    logger.info("sentence-transformers available, will load model on first use")
 except Exception as e:
     USE_TRANSFORMERS = False
     logger.warning(f"sentence-transformers unavailable ({e}). Using TF-IDF fallback.")
@@ -22,6 +21,15 @@ try:
 except ImportError:
     HAS_FAISS = False
     logger.warning("faiss-cpu unavailable. Brute-force cosine search will be used.")
+
+_model = None
+
+def _get_model():
+    global _model
+    if _model is None and USE_TRANSFORMERS:
+        logger.info("Loading sentence-transformers model...")
+        _model = SentenceTransformer("all-MiniLM-L6-v2")
+    return _model
 
 
 class TFIDFEmbedder:
@@ -57,7 +65,7 @@ class VectorStore:
     def embed(self, text: str) -> np.ndarray:
         """Convert text to normalised embedding vector."""
         if USE_TRANSFORMERS:
-            vec = _model.encode([text], normalize_embeddings=True, show_progress_bar=False)[0]
+            vec = _get_model().encode([text], normalize_embeddings=True, show_progress_bar=False)[0]
             return vec.astype(np.float32)
         else:
             vec = _tfidf.transform(text)
@@ -80,9 +88,9 @@ class VectorStore:
         return dot / (norm_a * norm_b)
 
     def delete(self, candidate_id: str) -> None:
-        """Remove a candidate from the id_map (FAISS flat index does not support deletion)."""
+        """Remove a candidate from the id_map."""
         if candidate_id in self.id_map:
             self.id_map.remove(candidate_id)
-            logger.info(f"Candidate {candidate_id} removed from vector store id_map.")
+            logger.info(f"Candidate {candidate_id} removed from vector store.")
         else:
             logger.warning(f"Candidate {candidate_id} not found in vector store.")
